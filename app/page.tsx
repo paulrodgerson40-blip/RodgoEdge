@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 type Market = {
   type: string;
@@ -30,18 +30,54 @@ type Payload = {
   cards: EdgeCard[];
 };
 
+function fmtTime(value?: string | null) {
+  if (!value) return "Start time pending";
+  if (value === "Test card") return value;
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return value;
+  return d.toLocaleString("en-AU", {
+    weekday: "short",
+    hour: "numeric",
+    minute: "2-digit",
+    day: "numeric",
+    month: "short",
+  });
+}
+
+function statusLabel(status?: string | null) {
+  const s = (status || "PENDING").replaceAll("_", " ");
+  if (s === "NOT STARTED") return "Waiting to start";
+  if (s === "LIVE") return "Live now";
+  if (s === "FINAL") return "Final";
+  return s;
+}
+
+function outcomeStyle(outcome?: string | null) {
+  if (outcome === "WIN") return { color: "#22c55e", label: "WIN" };
+  if (outcome === "LOSS") return { color: "#ef4444", label: "LOSS" };
+  if (outcome === "PUSH") return { color: "#f59e0b", label: "PUSH" };
+  return { color: "#94a3b8", label: "Pending result" };
+}
+
 export default function Home() {
   const [payload, setPayload] = useState<Payload>({ cards: [] });
   const [revealed, setRevealed] = useState<Record<string, boolean>>({});
   const [loading, setLoading] = useState(true);
+  const [lastChecked, setLastChecked] = useState<string>("");
 
   async function loadEdges() {
     try {
       const res = await fetch("/api/frontend-edges", { cache: "no-store" });
       const data = await res.json();
-      setPayload({ cards: Array.isArray(data.cards) ? data.cards : [], generated_at_utc: data.generated_at_utc });
+
+      setPayload({
+        cards: Array.isArray(data.cards) ? data.cards : [],
+        generated_at_utc: data.generated_at_utc,
+      });
+      setLastChecked(new Date().toLocaleTimeString("en-AU"));
     } catch {
       setPayload({ cards: [] });
+      setLastChecked(new Date().toLocaleTimeString("en-AU"));
     } finally {
       setLoading(false);
     }
@@ -53,28 +89,55 @@ export default function Home() {
     return () => clearInterval(timer);
   }, []);
 
+  const cards = useMemo(() => payload.cards || [], [payload.cards]);
+
   return (
     <main style={styles.page}>
-      <section style={styles.header}>
+      <section style={styles.hero}>
         <div>
-          <h1 style={styles.title}>Rodgo Edge</h1>
-          <p style={styles.subtitle}>Live edge alerts only. No edge, no card.</p>
+          <div style={styles.kicker}>RODGO EDGE LIVE</div>
+          <h1 style={styles.title}>Edge Alerts</h1>
+          <p style={styles.subtitle}>
+            Only confirmed backend edges appear here. If there is no edge, there is no card.
+          </p>
         </div>
-        <div style={styles.badge}>{loading ? "Loading" : `${payload.cards.length} active`}</div>
+
+        <div style={styles.statsBox}>
+          <div style={styles.bigNumber}>{cards.length}</div>
+          <div style={styles.statsLabel}>active edge{cards.length === 1 ? "" : "s"}</div>
+          <div style={styles.tiny}>Auto-refresh every 30s</div>
+        </div>
       </section>
 
-      {payload.cards.length === 0 ? (
+      {cards.length === 0 ? (
         <section style={styles.empty}>
+          <div style={styles.emptyIcon}>⏳</div>
           <h2 style={styles.emptyTitle}>Waiting for next edge</h2>
           <p style={styles.emptyText}>
-            Cards appear here only when the backend detects a total edge, spread edge, or both.
+            The backend is monitoring the slate. When a total edge, spread edge, or both are found,
+            the card will appear here automatically.
           </p>
-          <p style={styles.small}>Last checked: {payload.generated_at_utc || "—"}</p>
+          <div style={styles.emptyGrid}>
+            <div>
+              <strong>Frontend role</strong>
+              <span>Reader only</span>
+            </div>
+            <div>
+              <strong>Source</strong>
+              <span>frontend_edges.json</span>
+            </div>
+            <div>
+              <strong>Last checked</strong>
+              <span>{lastChecked || "Checking..."}</span>
+            </div>
+          </div>
         </section>
       ) : (
         <section style={styles.grid}>
-          {payload.cards.map((card) => {
+          {cards.map((card) => {
             const isOpen = !!revealed[card.game_id];
+            const outcome = outcomeStyle(card.outcome);
+            const hasBoth = card.markets?.length > 1;
 
             return (
               <article key={card.game_id} style={styles.card}>
@@ -82,19 +145,40 @@ export default function Home() {
                   <div>
                     <div style={styles.sport}>{card.sport || "NBA"}</div>
                     <h2 style={styles.game}>{card.game}</h2>
-                    <p style={styles.meta}>{card.start_time_local || card.start_time_utc || "Start time pending"}</p>
+                    <p style={styles.meta}>{fmtTime(card.start_time_local || card.start_time_utc)}</p>
                   </div>
-                  <div style={styles.status}>{card.status || "PENDING"}</div>
+
+                  <div style={styles.rightStack}>
+                    <div style={styles.status}>{statusLabel(card.status)}</div>
+                    <div style={{ ...styles.outcomePill, borderColor: outcome.color, color: outcome.color }}>
+                      {outcome.label}
+                    </div>
+                  </div>
                 </div>
 
-                {card.result ? (
-                  <div style={styles.result}>
-                    Final score: Away {card.result.away ?? "—"} - Home {card.result.home ?? "—"}
+                <div style={styles.summaryRow}>
+                  <div>
+                    <strong>{hasBoth ? "Total + Spread edge found" : `${card.markets?.[0]?.type || "Edge"} found`}</strong>
+                    <span>Backend confirmed. Click reveal to view selection.</span>
                   </div>
-                ) : null}
+
+                  {card.result ? (
+                    <div style={styles.scoreBox}>
+                      <span>Score</span>
+                      <strong>
+                        Away {card.result.away ?? "—"} - Home {card.result.home ?? "—"}
+                      </strong>
+                    </div>
+                  ) : (
+                    <div style={styles.scoreBox}>
+                      <span>Result</span>
+                      <strong>Pending</strong>
+                    </div>
+                  )}
+                </div>
 
                 <button
-                  style={styles.revealButton}
+                  style={isOpen ? styles.hideButton : styles.revealButton}
                   onClick={() =>
                     setRevealed((prev) => ({
                       ...prev,
@@ -110,22 +194,48 @@ export default function Home() {
                     {card.markets.map((m, idx) => (
                       <div key={`${card.game_id}-${m.type}-${idx}`} style={styles.market}>
                         <div style={styles.marketHeader}>
-                          <strong>{m.type}</strong>
-                          <span>{m.confidence != null ? `${m.confidence}% confidence` : "Confidence pending"}</span>
+                          <div>
+                            <div style={styles.marketType}>{m.type}</div>
+                            <div style={styles.selection}>{m.selection}</div>
+                          </div>
+                          <div style={styles.confidence}>
+                            <strong>{m.confidence != null ? `${m.confidence}%` : "—"}</strong>
+                            <span>confidence</span>
+                          </div>
                         </div>
-                        <div style={styles.selection}>{m.selection}</div>
-                        {m.edge != null ? <div style={styles.small}>Edge: {m.edge}</div> : null}
-                        {m.reason ? <div style={styles.reason}>{m.reason}</div> : null}
+
+                        <div style={styles.detailGrid}>
+                          <div>
+                            <span>Edge</span>
+                            <strong>{m.edge != null ? m.edge : "Pending"}</strong>
+                          </div>
+                          <div>
+                            <span>Status</span>
+                            <strong>{statusLabel(card.status)}</strong>
+                          </div>
+                          <div>
+                            <span>Outcome</span>
+                            <strong style={{ color: outcome.color }}>{outcome.label}</strong>
+                          </div>
+                        </div>
+
+                        <div style={styles.reasonBox}>
+                          <span>Why this edge?</span>
+                          <p>{m.reason || "Reason pending from backend."}</p>
+                        </div>
                       </div>
                     ))}
-
-                    <div style={styles.outcome}>
-                      Outcome: <strong>{card.outcome || "PENDING"}</strong>
-                    </div>
                   </div>
                 ) : (
-                  <div style={styles.locked}>Locked edge card. Tap reveal to view selection.</div>
+                  <div style={styles.locked}>
+                    🔒 Edge hidden. Open the card to view the backend selection.
+                  </div>
                 )}
+
+                <div style={styles.footer}>
+                  <span>Created: {fmtTime(card.created_at_utc)}</span>
+                  <span>Updated: {fmtTime(card.updated_at_utc)}</span>
+                </div>
               </article>
             );
           })}
@@ -139,140 +249,226 @@ const styles: Record<string, React.CSSProperties> = {
   page: {
     minHeight: "100vh",
     padding: 28,
-    background: "#0b1020",
+    background: "linear-gradient(180deg, #070b16 0%, #0b1020 100%)",
     color: "#f8fafc",
     fontFamily: "Arial, sans-serif",
   },
-  header: {
+  hero: {
     display: "flex",
     justifyContent: "space-between",
+    gap: 20,
     alignItems: "center",
-    gap: 16,
-    marginBottom: 28,
+    marginBottom: 26,
+  },
+  kicker: {
+    color: "#38bdf8",
+    fontSize: 12,
+    fontWeight: 800,
+    letterSpacing: 1.4,
   },
   title: {
-    fontSize: 34,
-    margin: 0,
+    fontSize: 42,
+    margin: "8px 0 6px",
+    letterSpacing: -1,
   },
   subtitle: {
-    margin: "8px 0 0",
     color: "#94a3b8",
+    margin: 0,
+    fontSize: 16,
   },
-  badge: {
-    border: "1px solid #334155",
-    borderRadius: 999,
-    padding: "10px 14px",
-    color: "#cbd5e1",
+  statsBox: {
+    minWidth: 145,
+    border: "1px solid #263449",
+    borderRadius: 18,
+    padding: 16,
+    textAlign: "center",
+    background: "#0f172a",
+  },
+  bigNumber: {
+    fontSize: 34,
+    fontWeight: 900,
+  },
+  statsLabel: {
+    color: "#e2e8f0",
+    fontSize: 13,
+  },
+  tiny: {
+    marginTop: 8,
+    color: "#64748b",
+    fontSize: 12,
   },
   empty: {
     border: "1px solid #1e293b",
     background: "#111827",
-    borderRadius: 18,
-    padding: 28,
+    borderRadius: 22,
+    padding: 32,
+  },
+  emptyIcon: {
+    fontSize: 32,
+    marginBottom: 12,
   },
   emptyTitle: {
     margin: 0,
-    fontSize: 24,
+    fontSize: 28,
   },
   emptyText: {
     color: "#cbd5e1",
+    maxWidth: 720,
+    lineHeight: 1.6,
   },
-  small: {
-    fontSize: 13,
-    color: "#94a3b8",
+  emptyGrid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+    gap: 12,
+    marginTop: 20,
   },
   grid: {
     display: "grid",
-    gridTemplateColumns: "repeat(auto-fit, minmax(310px, 1fr))",
-    gap: 18,
+    gridTemplateColumns: "repeat(auto-fit, minmax(360px, 1fr))",
+    gap: 20,
   },
   card: {
-    border: "1px solid #1e293b",
+    border: "1px solid #263449",
     background: "#111827",
-    borderRadius: 18,
-    padding: 20,
+    borderRadius: 22,
+    padding: 22,
+    boxShadow: "0 20px 50px rgba(0,0,0,0.25)",
   },
   cardTop: {
     display: "flex",
     justifyContent: "space-between",
-    gap: 14,
+    gap: 18,
   },
   sport: {
-    fontSize: 12,
     color: "#38bdf8",
-    fontWeight: 700,
-    letterSpacing: 1,
+    fontSize: 12,
+    fontWeight: 900,
+    letterSpacing: 1.2,
   },
   game: {
     margin: "8px 0",
-    fontSize: 22,
+    fontSize: 24,
+    letterSpacing: -0.4,
   },
   meta: {
     color: "#94a3b8",
     margin: 0,
   },
-  status: {
+  rightStack: {
+    display: "grid",
+    gap: 8,
+    justifyItems: "end",
     height: "fit-content",
+  },
+  status: {
     border: "1px solid #334155",
     borderRadius: 999,
-    padding: "7px 10px",
+    padding: "7px 11px",
     fontSize: 12,
     color: "#cbd5e1",
+    whiteSpace: "nowrap",
   },
-  result: {
-    marginTop: 14,
-    padding: 10,
-    borderRadius: 12,
-    background: "#020617",
-    color: "#cbd5e1",
+  outcomePill: {
+    border: "1px solid",
+    borderRadius: 999,
+    padding: "7px 11px",
+    fontSize: 12,
+    fontWeight: 900,
+  },
+  summaryRow: {
+    marginTop: 20,
+    padding: 16,
+    borderRadius: 16,
+    background: "#0b1224",
+    border: "1px solid #1e293b",
+    display: "flex",
+    justifyContent: "space-between",
+    gap: 12,
+  },
+  scoreBox: {
+    minWidth: 130,
+    textAlign: "right",
   },
   revealButton: {
     width: "100%",
     marginTop: 18,
-    padding: "13px 16px",
-    borderRadius: 14,
-    border: "0",
+    padding: "15px 16px",
+    borderRadius: 16,
+    border: 0,
     cursor: "pointer",
     background: "#22c55e",
     color: "#052e16",
-    fontWeight: 800,
+    fontWeight: 900,
     fontSize: 15,
   },
-  locked: {
-    marginTop: 14,
-    color: "#94a3b8",
-    fontSize: 14,
+  hideButton: {
+    width: "100%",
+    marginTop: 18,
+    padding: "15px 16px",
+    borderRadius: 16,
+    border: "1px solid #334155",
+    cursor: "pointer",
+    background: "#0f172a",
+    color: "#e2e8f0",
+    fontWeight: 900,
+    fontSize: 15,
   },
   markets: {
     marginTop: 16,
     display: "grid",
-    gap: 12,
+    gap: 14,
   },
   market: {
     border: "1px solid #334155",
-    borderRadius: 14,
-    padding: 14,
+    borderRadius: 18,
+    padding: 16,
     background: "#020617",
   },
   marketHeader: {
     display: "flex",
     justifyContent: "space-between",
-    gap: 12,
-    color: "#cbd5e1",
-    fontSize: 13,
+    gap: 16,
+  },
+  marketType: {
+    color: "#38bdf8",
+    fontSize: 12,
+    fontWeight: 900,
+    letterSpacing: 1,
   },
   selection: {
-    marginTop: 10,
-    fontSize: 21,
-    fontWeight: 800,
+    marginTop: 7,
+    fontSize: 24,
+    fontWeight: 900,
   },
-  reason: {
-    marginTop: 10,
+  confidence: {
+    textAlign: "right",
+  },
+  detailGrid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(3, 1fr)",
+    gap: 10,
+    marginTop: 16,
+  },
+  reasonBox: {
+    marginTop: 16,
+    padding: 14,
+    background: "#0b1224",
+    borderRadius: 14,
     color: "#cbd5e1",
-    fontSize: 14,
   },
-  outcome: {
-    paddingTop: 8,
-    color: "#e2e8f0",
+  locked: {
+    marginTop: 14,
+    padding: 14,
+    borderRadius: 14,
+    background: "#020617",
+    color: "#94a3b8",
+  },
+  footer: {
+    display: "flex",
+    justifyContent: "space-between",
+    gap: 12,
+    marginTop: 14,
+    color: "#64748b",
+    fontSize: 12,
   },
 };
