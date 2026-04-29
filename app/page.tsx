@@ -26,44 +26,145 @@ type EdgeCard = {
 };
 
 type Payload = {
-  generated_at_utc?: string;
+  generated_at_utc?: string | null;
   cards: EdgeCard[];
 };
 
+function cleanSelection(selection?: string | null) {
+  if (!selection) return "Signal pending";
+  return selection.replace(/^BET\s+/i, "").trim();
+}
+
+function marketTitle(type?: string | null) {
+  const t = (type || "").toUpperCase();
+  if (t === "SPREAD") return "Spread Signal";
+  if (t === "TOTAL") return "Total Signal";
+  return "Edge Signal";
+}
+
+function fmtNumber(value?: number | null, suffix = "") {
+  if (value === null || value === undefined || Number.isNaN(Number(value))) {
+    return "Pending";
+  }
+  const n = Number(value);
+  const sign = n > 0 ? "+" : "";
+  return `${sign}${n.toFixed(2).replace(/\.00$/, "")}${suffix}`;
+}
+
 function fmtTime(value?: string | null) {
   if (!value) return "Start time pending";
-  if (value === "Test card") return value;
   const d = new Date(value);
   if (Number.isNaN(d.getTime())) return value;
   return d.toLocaleString("en-AU", {
     weekday: "short",
-    hour: "numeric",
-    minute: "2-digit",
     day: "numeric",
     month: "short",
+    hour: "numeric",
+    minute: "2-digit",
   });
 }
 
 function statusLabel(status?: string | null) {
-  const s = (status || "PENDING").replaceAll("_", " ");
+  const s = (status || "PENDING").replaceAll("_", " ").toUpperCase();
   if (s === "NOT STARTED") return "Waiting to start";
   if (s === "LIVE") return "Live now";
   if (s === "FINAL") return "Final";
-  return s;
+  if (s === "PENDING") return "Pending";
+  return s
+    .toLowerCase()
+    .replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
 function outcomeStyle(outcome?: string | null) {
-  if (outcome === "WIN") return { color: "#22c55e", label: "WIN" };
-  if (outcome === "LOSS") return { color: "#ef4444", label: "LOSS" };
-  if (outcome === "PUSH") return { color: "#f59e0b", label: "PUSH" };
-  return { color: "#94a3b8", label: "Pending result" };
+  const o = (outcome || "PENDING").toUpperCase();
+  if (o === "WIN") {
+    return {
+      label: "WIN",
+      color: "#22c55e",
+      background: "rgba(34,197,94,0.12)",
+      border: "rgba(34,197,94,0.55)",
+      icon: "✅",
+    };
+  }
+  if (o === "LOSS") {
+    return {
+      label: "LOSS",
+      color: "#ef4444",
+      background: "rgba(239,68,68,0.12)",
+      border: "rgba(239,68,68,0.55)",
+      icon: "❌",
+    };
+  }
+  if (o === "PUSH") {
+    return {
+      label: "PUSH",
+      color: "#f59e0b",
+      background: "rgba(245,158,11,0.12)",
+      border: "rgba(245,158,11,0.55)",
+      icon: "➖",
+    };
+  }
+  return {
+    label: "Pending result",
+    color: "#94a3b8",
+    background: "rgba(148,163,184,0.10)",
+    border: "rgba(148,163,184,0.35)",
+    icon: "⏳",
+  };
+}
+
+function splitTeams(game?: string | null) {
+  const raw = game || "";
+  const parts = raw.split(" @ ");
+  if (parts.length === 2) {
+    return {
+      away: parts[0],
+      home: parts[1],
+    };
+  }
+  return {
+    away: "Away",
+    home: "Home",
+  };
+}
+
+function explainOutcome(card: EdgeCard, market: Market) {
+  const outcome = (card.outcome || "PENDING").toUpperCase();
+  const selection = cleanSelection(market.selection);
+  const teams = splitTeams(card.game);
+
+  if (!card.result) {
+    return "Result pending. The system will update this card once the final score is available.";
+  }
+
+  if (outcome === "WIN") {
+    return `${selection} was successful. Final score: ${teams.away} ${card.result.away ?? "—"} — ${teams.home} ${card.result.home ?? "—"}.`;
+  }
+
+  if (outcome === "LOSS") {
+    return `${selection} was unsuccessful. Final score: ${teams.away} ${card.result.away ?? "—"} — ${teams.home} ${card.result.home ?? "—"}.`;
+  }
+
+  if (outcome === "PUSH") {
+    return `${selection} finished as a push. Final score: ${teams.away} ${card.result.away ?? "—"} — ${teams.home} ${card.result.home ?? "—"}.`;
+  }
+
+  return "Outcome pending.";
+}
+
+function confidenceLabel(value?: number | null) {
+  if (value === null || value === undefined) return "Pending";
+  if (value >= 65) return "Strong";
+  if (value >= 60) return "Good";
+  if (value >= 58) return "Qualified";
+  return "Below threshold";
 }
 
 export default function Home() {
   const [payload, setPayload] = useState<Payload>({ cards: [] });
   const [revealed, setRevealed] = useState<Record<string, boolean>>({});
   const [loading, setLoading] = useState(true);
-  const [lastChecked, setLastChecked] = useState<string>("");
+  const [lastChecked, setLastChecked] = useState("");
 
   async function loadEdges() {
     try {
@@ -72,9 +173,14 @@ export default function Home() {
 
       setPayload({
         cards: Array.isArray(data.cards) ? data.cards : [],
-        generated_at_utc: data.generated_at_utc,
+        generated_at_utc: data.generated_at_utc || null,
       });
-      setLastChecked(new Date().toLocaleTimeString("en-AU"));
+
+      setLastChecked(new Date().toLocaleTimeString("en-AU", {
+        hour: "numeric",
+        minute: "2-digit",
+        second: "2-digit",
+      }));
     } catch {
       setPayload({ cards: [] });
       setLastChecked(new Date().toLocaleTimeString("en-AU"));
@@ -98,13 +204,13 @@ export default function Home() {
           <div style={styles.kicker}>RODGO EDGE LIVE</div>
           <h1 style={styles.title}>Edge Alerts</h1>
           <p style={styles.subtitle}>
-            Only confirmed backend edges appear here. If there is no edge, there is no card.
+            Prediction-first edge detection. Only confirmed backend signals appear here.
           </p>
         </div>
 
         <div style={styles.statsBox}>
           <div style={styles.bigNumber}>{cards.length}</div>
-          <div style={styles.statsLabel}>active edge{cards.length === 1 ? "" : "s"}</div>
+          <div style={styles.statsLabel}>active signal{cards.length === 1 ? "" : "s"}</div>
           <div style={styles.tiny}>Auto-refresh every 30s</div>
         </div>
       </section>
@@ -112,69 +218,83 @@ export default function Home() {
       {cards.length === 0 ? (
         <section style={styles.empty}>
           <div style={styles.emptyIcon}>⏳</div>
-          <h2 style={styles.emptyTitle}>Waiting for next edge</h2>
+          <h2 style={styles.emptyTitle}>Waiting for the next edge</h2>
           <p style={styles.emptyText}>
-            The backend is monitoring the slate. When a total edge, spread edge, or both are found,
-            the card will appear here automatically.
+            The backend is monitoring the slate. When the model finds a qualifying spread or total edge,
+            a signal card will appear here automatically.
           </p>
+
           <div style={styles.emptyGrid}>
-            <div>
-              <strong>Frontend role</strong>
-              <span>Reader only</span>
-            </div>
-            <div>
-              <strong>Source</strong>
-              <span>frontend_edges.json</span>
-            </div>
-            <div>
-              <strong>Last checked</strong>
-              <span>{lastChecked || "Checking..."}</span>
-            </div>
+            <Info label="Frontend role" value="Reader only" />
+            <Info label="Source" value="frontend_edges.json" />
+            <Info label="Last checked" value={lastChecked || (loading ? "Checking..." : "Not available")} />
           </div>
         </section>
       ) : (
         <section style={styles.grid}>
           {cards.map((card) => {
-            const isOpen = !!revealed[card.game_id];
+            const isOpen = revealed[card.game_id] ?? true;
             const outcome = outcomeStyle(card.outcome);
-            const hasBoth = card.markets?.length > 1;
+            const teams = splitTeams(card.game);
+            const primaryMarket = card.markets?.[0];
+            const status = statusLabel(card.status);
 
             return (
               <article key={card.game_id} style={styles.card}>
                 <div style={styles.cardTop}>
                   <div>
-                    <div style={styles.sport}>{card.sport || "NBA"}</div>
+                    <div style={styles.sport}>{card.sport || "NBA"} SIGNAL</div>
                     <h2 style={styles.game}>{card.game}</h2>
                     <p style={styles.meta}>{fmtTime(card.start_time_local || card.start_time_utc)}</p>
                   </div>
 
                   <div style={styles.rightStack}>
-                    <div style={styles.status}>{statusLabel(card.status)}</div>
-                    <div style={{ ...styles.outcomePill, borderColor: outcome.color, color: outcome.color }}>
-                      {outcome.label}
+                    <div style={styles.status}>{status}</div>
+                    <div
+                      style={{
+                        ...styles.outcomePill,
+                        color: outcome.color,
+                        borderColor: outcome.border,
+                        background: outcome.background,
+                      }}
+                    >
+                      {outcome.icon} {outcome.label}
                     </div>
                   </div>
                 </div>
 
-                <div style={styles.summaryRow}>
+                <div style={styles.scorePanel}>
                   <div>
-                    <strong>{hasBoth ? "Total + Spread edge found" : `${card.markets?.[0]?.type || "Edge"} found`}</strong>
-                    <span>Backend confirmed. Click reveal to view selection.</span>
+                    <div style={styles.panelLabel}>Final score</div>
+                    {card.result ? (
+                      <div style={styles.scoreLine}>
+                        <span>{teams.away}</span>
+                        <strong>{card.result.away ?? "—"}</strong>
+                        <span style={styles.scoreDash}>—</span>
+                        <strong>{card.result.home ?? "—"}</strong>
+                        <span>{teams.home}</span>
+                      </div>
+                    ) : (
+                      <div style={styles.scorePending}>Score pending</div>
+                    )}
                   </div>
 
-                  {card.result ? (
-                    <div style={styles.scoreBox}>
-                      <span>Score</span>
-                      <strong>
-                        Away {card.result.away ?? "—"} - Home {card.result.home ?? "—"}
-                      </strong>
+                  <div style={styles.resultMini}>
+                    <span>Signal result</span>
+                    <strong style={{ color: outcome.color }}>{outcome.label}</strong>
+                  </div>
+                </div>
+
+                <div style={styles.signalSummary}>
+                  <div>
+                    <div style={styles.panelLabel}>Recommended signal</div>
+                    <div style={styles.mainSignal}>
+                      {primaryMarket ? cleanSelection(primaryMarket.selection) : "Signal pending"}
                     </div>
-                  ) : (
-                    <div style={styles.scoreBox}>
-                      <span>Result</span>
-                      <strong>Pending</strong>
-                    </div>
-                  )}
+                  </div>
+                  <div style={styles.summaryBadge}>
+                    {primaryMarket ? marketTitle(primaryMarket.type) : "Signal"}
+                  </div>
                 </div>
 
                 <button
@@ -182,53 +302,49 @@ export default function Home() {
                   onClick={() =>
                     setRevealed((prev) => ({
                       ...prev,
-                      [card.game_id]: !prev[card.game_id],
+                      [card.game_id]: !isOpen,
                     }))
                   }
                 >
-                  {isOpen ? "Hide edge" : "Reveal edge"}
+                  {isOpen ? "Hide details" : "View signal details"}
                 </button>
 
-                {isOpen ? (
+                {isOpen && (
                   <div style={styles.markets}>
                     {card.markets.map((m, idx) => (
                       <div key={`${card.game_id}-${m.type}-${idx}`} style={styles.market}>
                         <div style={styles.marketHeader}>
                           <div>
-                            <div style={styles.marketType}>{m.type}</div>
-                            <div style={styles.selection}>{m.selection}</div>
+                            <div style={styles.marketType}>{marketTitle(m.type)}</div>
+                            <div style={styles.selection}>{cleanSelection(m.selection)}</div>
                           </div>
+
                           <div style={styles.confidence}>
-                            <strong>{m.confidence != null ? `${m.confidence}%` : "—"}</strong>
-                            <span>confidence</span>
+                            <strong>{m.confidence != null ? `${m.confidence}%` : "Pending"}</strong>
+                            <span>{confidenceLabel(m.confidence)}</span>
                           </div>
                         </div>
 
                         <div style={styles.detailGrid}>
-                          <div>
-                            <span>Edge</span>
-                            <strong>{m.edge != null ? m.edge : "Pending"}</strong>
-                          </div>
-                          <div>
-                            <span>Status</span>
-                            <strong>{statusLabel(card.status)}</strong>
-                          </div>
-                          <div>
-                            <span>Outcome</span>
-                            <strong style={{ color: outcome.color }}>{outcome.label}</strong>
-                          </div>
+                          <Metric label="Model edge" value={fmtNumber(m.edge)} />
+                          <Metric label="Confidence" value={m.confidence != null ? `${m.confidence}%` : "Pending"} />
+                          <Metric label="Outcome" value={outcome.label} color={outcome.color} />
                         </div>
 
                         <div style={styles.reasonBox}>
-                          <span>Why this edge?</span>
-                          <p>{m.reason || "Reason pending from backend."}</p>
+                          <span>Why this signal?</span>
+                          <p>
+                            {m.reason ||
+                              "The backend confirmed this signal because the model found a qualifying edge and confidence passed the configured threshold."}
+                          </p>
+                        </div>
+
+                        <div style={styles.reasonBox}>
+                          <span>Result explanation</span>
+                          <p>{explainOutcome(card, m)}</p>
                         </div>
                       </div>
                     ))}
-                  </div>
-                ) : (
-                  <div style={styles.locked}>
-                    🔒 Edge hidden. Open the card to view the backend selection.
                   </div>
                 )}
 
@@ -245,13 +361,40 @@ export default function Home() {
   );
 }
 
+function Info({ label, value }: { label: string; value: string }) {
+  return (
+    <div style={styles.infoBox}>
+      <span>{label}</span>
+      <strong>{value}</strong>
+    </div>
+  );
+}
+
+function Metric({
+  label,
+  value,
+  color,
+}: {
+  label: string;
+  value: string;
+  color?: string;
+}) {
+  return (
+    <div style={styles.metric}>
+      <span>{label}</span>
+      <strong style={color ? { color } : undefined}>{value}</strong>
+    </div>
+  );
+}
+
 const styles: Record<string, React.CSSProperties> = {
   page: {
     minHeight: "100vh",
     padding: 28,
     background: "linear-gradient(180deg, #070b16 0%, #0b1020 100%)",
     color: "#f8fafc",
-    fontFamily: "Arial, sans-serif",
+    fontFamily:
+      'Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif',
   },
   hero: {
     display: "flex",
@@ -263,34 +406,38 @@ const styles: Record<string, React.CSSProperties> = {
   kicker: {
     color: "#38bdf8",
     fontSize: 12,
-    fontWeight: 800,
+    fontWeight: 900,
     letterSpacing: 1.4,
   },
   title: {
-    fontSize: 42,
+    fontSize: 44,
     margin: "8px 0 6px",
-    letterSpacing: -1,
+    letterSpacing: -1.2,
   },
   subtitle: {
     color: "#94a3b8",
     margin: 0,
     fontSize: 16,
+    lineHeight: 1.5,
   },
   statsBox: {
-    minWidth: 145,
+    minWidth: 150,
     border: "1px solid #263449",
-    borderRadius: 18,
-    padding: 16,
+    borderRadius: 20,
+    padding: 18,
     textAlign: "center",
-    background: "#0f172a",
+    background: "linear-gradient(180deg, #111827 0%, #0f172a 100%)",
+    boxShadow: "0 20px 50px rgba(0,0,0,0.25)",
   },
   bigNumber: {
-    fontSize: 34,
-    fontWeight: 900,
+    fontSize: 36,
+    fontWeight: 950,
+    lineHeight: 1,
   },
   statsLabel: {
     color: "#e2e8f0",
     fontSize: 13,
+    marginTop: 6,
   },
   tiny: {
     marginTop: 8,
@@ -300,8 +447,8 @@ const styles: Record<string, React.CSSProperties> = {
   empty: {
     border: "1px solid #1e293b",
     background: "#111827",
-    borderRadius: 22,
-    padding: 32,
+    borderRadius: 24,
+    padding: 34,
   },
   emptyIcon: {
     fontSize: 32,
@@ -313,42 +460,52 @@ const styles: Record<string, React.CSSProperties> = {
   },
   emptyText: {
     color: "#cbd5e1",
-    maxWidth: 720,
-    lineHeight: 1.6,
+    maxWidth: 760,
+    lineHeight: 1.65,
   },
   emptyGrid: {
     display: "grid",
-    gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+    gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))",
     gap: 12,
-    marginTop: 20,
+    marginTop: 22,
+  },
+  infoBox: {
+    border: "1px solid #263449",
+    background: "#0b1224",
+    borderRadius: 16,
+    padding: 14,
+    display: "grid",
+    gap: 6,
   },
   grid: {
     display: "grid",
-    gridTemplateColumns: "repeat(auto-fit, minmax(360px, 1fr))",
+    gridTemplateColumns: "repeat(auto-fit, minmax(420px, 1fr))",
     gap: 20,
   },
   card: {
     border: "1px solid #263449",
-    background: "#111827",
-    borderRadius: 22,
+    background: "linear-gradient(180deg, #111827 0%, #0f172a 100%)",
+    borderRadius: 24,
     padding: 22,
-    boxShadow: "0 20px 50px rgba(0,0,0,0.25)",
+    boxShadow: "0 20px 50px rgba(0,0,0,0.28)",
   },
   cardTop: {
     display: "flex",
     justifyContent: "space-between",
     gap: 18,
+    alignItems: "flex-start",
   },
   sport: {
     color: "#38bdf8",
     fontSize: 12,
-    fontWeight: 900,
+    fontWeight: 950,
     letterSpacing: 1.2,
   },
   game: {
     margin: "8px 0",
-    fontSize: 24,
-    letterSpacing: -0.4,
+    fontSize: 26,
+    letterSpacing: -0.5,
+    lineHeight: 1.15,
   },
   meta: {
     color: "#94a3b8",
@@ -367,27 +524,81 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: 12,
     color: "#cbd5e1",
     whiteSpace: "nowrap",
+    background: "#0b1224",
   },
   outcomePill: {
     border: "1px solid",
     borderRadius: 999,
     padding: "7px 11px",
     fontSize: 12,
-    fontWeight: 900,
+    fontWeight: 950,
+    whiteSpace: "nowrap",
   },
-  summaryRow: {
+  scorePanel: {
     marginTop: 20,
     padding: 16,
-    borderRadius: 16,
+    borderRadius: 18,
     background: "#0b1224",
     border: "1px solid #1e293b",
     display: "flex",
     justifyContent: "space-between",
-    gap: 12,
+    gap: 16,
+    alignItems: "center",
   },
-  scoreBox: {
-    minWidth: 130,
+  panelLabel: {
+    color: "#94a3b8",
+    fontSize: 12,
+    fontWeight: 800,
+    textTransform: "uppercase",
+    letterSpacing: 0.8,
+    marginBottom: 8,
+  },
+  scoreLine: {
+    display: "flex",
+    gap: 9,
+    alignItems: "center",
+    flexWrap: "wrap",
+    color: "#cbd5e1",
+  },
+  scoreDash: {
+    color: "#64748b",
+  },
+  scorePending: {
+    color: "#94a3b8",
+    fontWeight: 700,
+  },
+  resultMini: {
+    display: "grid",
+    gap: 4,
     textAlign: "right",
+    minWidth: 120,
+  },
+  signalSummary: {
+    marginTop: 16,
+    padding: 18,
+    borderRadius: 18,
+    background: "#020617",
+    border: "1px solid #334155",
+    display: "flex",
+    justifyContent: "space-between",
+    gap: 16,
+    alignItems: "center",
+  },
+  mainSignal: {
+    fontSize: 28,
+    fontWeight: 950,
+    letterSpacing: -0.5,
+    lineHeight: 1.1,
+  },
+  summaryBadge: {
+    border: "1px solid #0ea5e9",
+    background: "rgba(14,165,233,0.10)",
+    color: "#7dd3fc",
+    borderRadius: 999,
+    padding: "8px 12px",
+    fontSize: 12,
+    fontWeight: 900,
+    whiteSpace: "nowrap",
   },
   revealButton: {
     width: "100%",
@@ -398,7 +609,7 @@ const styles: Record<string, React.CSSProperties> = {
     cursor: "pointer",
     background: "#22c55e",
     color: "#052e16",
-    fontWeight: 900,
+    fontWeight: 950,
     fontSize: 15,
   },
   hideButton: {
@@ -410,7 +621,7 @@ const styles: Record<string, React.CSSProperties> = {
     cursor: "pointer",
     background: "#0f172a",
     color: "#e2e8f0",
-    fontWeight: 900,
+    fontWeight: 950,
     fontSize: 15,
   },
   markets: {
@@ -420,7 +631,7 @@ const styles: Record<string, React.CSSProperties> = {
   },
   market: {
     border: "1px solid #334155",
-    borderRadius: 18,
+    borderRadius: 20,
     padding: 16,
     background: "#020617",
   },
@@ -428,40 +639,49 @@ const styles: Record<string, React.CSSProperties> = {
     display: "flex",
     justifyContent: "space-between",
     gap: 16,
+    alignItems: "flex-start",
   },
   marketType: {
     color: "#38bdf8",
     fontSize: 12,
-    fontWeight: 900,
+    fontWeight: 950,
     letterSpacing: 1,
+    textTransform: "uppercase",
   },
   selection: {
     marginTop: 7,
-    fontSize: 24,
-    fontWeight: 900,
+    fontSize: 25,
+    fontWeight: 950,
+    letterSpacing: -0.4,
+    lineHeight: 1.15,
   },
   confidence: {
     textAlign: "right",
+    display: "grid",
+    gap: 4,
+    minWidth: 100,
   },
   detailGrid: {
     display: "grid",
-    gridTemplateColumns: "repeat(3, 1fr)",
+    gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))",
     gap: 10,
     marginTop: 16,
   },
+  metric: {
+    border: "1px solid #1e293b",
+    background: "#0b1224",
+    borderRadius: 14,
+    padding: 13,
+    display: "grid",
+    gap: 6,
+  },
   reasonBox: {
-    marginTop: 16,
+    marginTop: 14,
     padding: 14,
     background: "#0b1224",
     borderRadius: 14,
     color: "#cbd5e1",
-  },
-  locked: {
-    marginTop: 14,
-    padding: 14,
-    borderRadius: 14,
-    background: "#020617",
-    color: "#94a3b8",
+    lineHeight: 1.55,
   },
   footer: {
     display: "flex",
@@ -470,5 +690,6 @@ const styles: Record<string, React.CSSProperties> = {
     marginTop: 14,
     color: "#64748b",
     fontSize: 12,
+    flexWrap: "wrap",
   },
 };
