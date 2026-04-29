@@ -30,9 +30,31 @@ type Payload = {
   cards: EdgeCard[];
 };
 
+type UpcomingGame = {
+  sport: string;
+  game: string;
+  start_time_utc?: string | null;
+  start_time_local?: string | null;
+  minutes_to_start?: number | null;
+};
+
 function cleanSelection(selection?: string | null) {
   if (!selection) return "Signal pending";
   return selection.replace(/^BET\s+/i, "").trim();
+}
+
+function cleanGameName(value?: string | null) {
+  if (!value) return "Game pending";
+
+  return value
+    .replace(/\.json$/i, "")
+    .replace(/^[0-9]{4}_/, "")
+    .replace(/_[a-z0-9]{8,}$/i, "")
+    .replace(/_nba$/i, "")
+    .replace(/_afl$/i, "")
+    .replace(/_nrl$/i, "")
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
 function marketTitle(type?: string | null) {
@@ -62,6 +84,35 @@ function fmtTime(value?: string | null) {
     hour: "numeric",
     minute: "2-digit",
   });
+}
+
+function fmtCountdown(minutes?: number | null) {
+  if (minutes === null || minutes === undefined || Number.isNaN(Number(minutes))) {
+    return "Pending";
+  }
+
+  if (minutes < 0) return "Started";
+  if (minutes < 60) return `${minutes} min`;
+
+  const hours = Math.floor(minutes / 60);
+  const mins = minutes % 60;
+  if (mins === 0) return `${hours}h`;
+  return `${hours}h ${mins}m`;
+}
+
+function triggerLabel(minutes?: number | null) {
+  if (minutes === null || minutes === undefined || Number.isNaN(Number(minutes))) {
+    return "Trigger pending";
+  }
+
+  const triggerIn = minutes - 10;
+  if (triggerIn <= 0 && minutes >= -20) return "Trigger window active";
+  if (minutes < -20) return "Window closed";
+  if (triggerIn < 60) return `Triggers in ${triggerIn} min`;
+
+  const hours = Math.floor(triggerIn / 60);
+  const mins = triggerIn % 60;
+  return mins === 0 ? `Triggers in ${hours}h` : `Triggers in ${hours}h ${mins}m`;
 }
 
 function statusLabel(status?: string | null) {
@@ -162,6 +213,7 @@ function confidenceLabel(value?: number | null) {
 
 export default function Home() {
   const [payload, setPayload] = useState<Payload>({ cards: [] });
+  const [upcoming, setUpcoming] = useState<UpcomingGame[]>([]);
   const [revealed, setRevealed] = useState<Record<string, boolean>>({});
   const [loading, setLoading] = useState(true);
   const [lastChecked, setLastChecked] = useState("");
@@ -189,9 +241,25 @@ export default function Home() {
     }
   }
 
+  async function loadUpcoming() {
+    try {
+      const res = await fetch("/api/upcoming-games", { cache: "no-store" });
+      const data = await res.json();
+      setUpcoming(Array.isArray(data.games) ? data.games : []);
+    } catch {
+      setUpcoming([]);
+    }
+  }
+
   useEffect(() => {
     loadEdges();
-    const timer = setInterval(loadEdges, 30000);
+    loadUpcoming();
+
+    const timer = setInterval(() => {
+      loadEdges();
+      loadUpcoming();
+    }, 30000);
+
     return () => clearInterval(timer);
   }, []);
 
@@ -204,7 +272,7 @@ export default function Home() {
           <div style={styles.kicker}>RODGO EDGE LIVE</div>
           <h1 style={styles.title}>Edge Alerts</h1>
           <p style={styles.subtitle}>
-            Prediction-first edge detection. Only confirmed backend signals appear here.
+            Trigger-window edge display. Signal cards appear only when the backend exposes a confirmed live alert.
           </p>
         </div>
 
@@ -215,18 +283,62 @@ export default function Home() {
         </div>
       </section>
 
+      <section style={styles.upcoming}>
+        <div style={styles.upcomingHeader}>
+          <div>
+            <div style={styles.kicker}>SLATE WATCH</div>
+            <h2 style={styles.upcomingTitle}>Upcoming Games</h2>
+          </div>
+          <div style={styles.upcomingCount}>{upcoming.length} waiting</div>
+        </div>
+
+        {upcoming.length === 0 ? (
+          <div style={styles.upcomingEmpty}>No upcoming games currently loaded.</div>
+        ) : (
+          <div style={styles.upcomingList}>
+            {upcoming.map((g, i) => {
+              const isNext = i === 0;
+              const mins = g.minutes_to_start ?? null;
+              const inTriggerWindow = mins !== null && mins <= 10 && mins >= -20;
+
+              return (
+                <div
+                  key={`${g.sport}-${g.game}-${i}`}
+                  style={{
+                    ...styles.upcomingRow,
+                    ...(isNext ? styles.upcomingRowNext : {}),
+                  }}
+                >
+                  <div style={styles.upcomingSport}>{g.sport || "GAME"}</div>
+                  <div style={styles.upcomingMain}>
+                    <strong>{cleanGameName(g.game)}</strong>
+                    <span>{fmtTime(g.start_time_local || g.start_time_utc)}</span>
+                  </div>
+                  <div style={styles.upcomingRight}>
+                    <strong>{fmtCountdown(mins)}</strong>
+                    <span style={inTriggerWindow ? styles.triggerLive : undefined}>
+                      {triggerLabel(mins)}
+                    </span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </section>
+
       {cards.length === 0 ? (
         <section style={styles.empty}>
           <div style={styles.emptyIcon}>⏳</div>
           <h2 style={styles.emptyTitle}>Waiting for the next edge</h2>
           <p style={styles.emptyText}>
-            The backend is monitoring the slate. When the model finds a qualifying spread or total edge,
-            a signal card will appear here automatically.
+            The backend is monitoring the slate. When a game enters the trigger window and a signal is available,
+            a card will appear here automatically.
           </p>
 
           <div style={styles.emptyGrid}>
             <Info label="Frontend role" value="Reader only" />
-            <Info label="Source" value="frontend_edges.json" />
+            <Info label="Source" value="/api/frontend-edges" />
             <Info label="Last checked" value={lastChecked || (loading ? "Checking..." : "Not available")} />
           </div>
         </section>
@@ -443,6 +555,84 @@ const styles: Record<string, React.CSSProperties> = {
     marginTop: 8,
     color: "#64748b",
     fontSize: 12,
+  },
+  upcoming: {
+    border: "1px solid #263449",
+    background: "linear-gradient(180deg, #101827 0%, #0b1224 100%)",
+    borderRadius: 24,
+    padding: 20,
+    marginBottom: 24,
+    boxShadow: "0 20px 50px rgba(0,0,0,0.22)",
+  },
+  upcomingHeader: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    gap: 16,
+    marginBottom: 14,
+  },
+  upcomingTitle: {
+    margin: "6px 0 0",
+    fontSize: 26,
+    letterSpacing: -0.4,
+  },
+  upcomingCount: {
+    border: "1px solid #334155",
+    background: "#020617",
+    color: "#cbd5e1",
+    borderRadius: 999,
+    padding: "8px 12px",
+    fontSize: 12,
+    fontWeight: 900,
+    whiteSpace: "nowrap",
+  },
+  upcomingEmpty: {
+    border: "1px solid #1e293b",
+    background: "#020617",
+    borderRadius: 16,
+    padding: 16,
+    color: "#94a3b8",
+  },
+  upcomingList: {
+    display: "grid",
+    gap: 10,
+  },
+  upcomingRow: {
+    display: "flex",
+    gap: 14,
+    alignItems: "center",
+    border: "1px solid #1e293b",
+    background: "#020617",
+    borderRadius: 16,
+    padding: 14,
+  },
+  upcomingRowNext: {
+    borderColor: "rgba(56,189,248,0.55)",
+    background: "linear-gradient(90deg, rgba(14,165,233,0.14), #020617)",
+  },
+  upcomingSport: {
+    minWidth: 52,
+    color: "#7dd3fc",
+    fontSize: 12,
+    fontWeight: 950,
+    letterSpacing: 1,
+  },
+  upcomingMain: {
+    flex: 1,
+    display: "grid",
+    gap: 4,
+    minWidth: 0,
+  },
+  upcomingRight: {
+    minWidth: 140,
+    display: "grid",
+    gap: 4,
+    textAlign: "right",
+    color: "#cbd5e1",
+  },
+  triggerLive: {
+    color: "#22c55e",
+    fontWeight: 900,
   },
   empty: {
     border: "1px solid #1e293b",
