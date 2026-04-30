@@ -105,9 +105,13 @@ function triggerLabel(minutes?: number | null) {
     return "Trigger pending";
   }
 
+  // Upcoming panel is pre-start only. Started/live/old games should be filtered
+  // by the backend, but keep the frontend defensive so stale rows never show
+  // as an active trigger window.
+  if (minutes <= 0) return "Started";
+
   const triggerIn = minutes - 10;
-  if (triggerIn <= 0 && minutes >= -20) return "Trigger window active";
-  if (minutes < -20) return "Window closed";
+  if (triggerIn <= 0) return "Trigger window active";
   if (triggerIn < 60) return `Triggers in ${triggerIn} min`;
 
   const hours = Math.floor(triggerIn / 60);
@@ -265,6 +269,13 @@ export default function Home() {
 
   const cards = useMemo(() => payload.cards || [], [payload.cards]);
 
+  const visibleUpcoming = useMemo(() => {
+    return (upcoming || []).filter((g) => {
+      const mins = g.minutes_to_start;
+      return mins !== null && mins !== undefined && !Number.isNaN(Number(mins)) && Number(mins) > 0;
+    });
+  }, [upcoming]);
+
   return (
     <main style={styles.page}>
       <section style={styles.hero}>
@@ -289,17 +300,17 @@ export default function Home() {
             <div style={styles.kicker}>SLATE WATCH</div>
             <h2 style={styles.upcomingTitle}>Upcoming Games</h2>
           </div>
-          <div style={styles.upcomingCount}>{upcoming.length} waiting</div>
+          <div style={styles.upcomingCount}>{visibleUpcoming.length} waiting</div>
         </div>
 
-        {upcoming.length === 0 ? (
+        {visibleUpcoming.length === 0 ? (
           <div style={styles.upcomingEmpty}>No upcoming games currently loaded.</div>
         ) : (
           <div style={styles.upcomingList}>
-            {upcoming.map((g, i) => {
+            {visibleUpcoming.map((g, i) => {
               const isNext = i === 0;
               const mins = g.minutes_to_start ?? null;
-              const inTriggerWindow = mins !== null && mins <= 10 && mins >= -20;
+              const inTriggerWindow = mins !== null && mins > 0 && mins <= 10;
 
               return (
                 <div
@@ -502,9 +513,12 @@ function Metric({
 const styles: Record<string, React.CSSProperties> = {
   page: {
     minHeight: "100vh",
+    height: "auto",
     padding: 28,
+    paddingBottom: 80,
     background: "linear-gradient(180deg, #070b16 0%, #0b1020 100%)",
     color: "#f8fafc",
+    overflowY: "auto",
     fontFamily:
       'Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif',
   },
@@ -596,11 +610,16 @@ const styles: Record<string, React.CSSProperties> = {
   upcomingList: {
     display: "grid",
     gap: 10,
+    maxHeight: "calc(100vh - 360px)",
+    minHeight: 0,
+    overflowY: "auto",
+    paddingRight: 4,
   },
   upcomingRow: {
     display: "flex",
     gap: 14,
     alignItems: "center",
+    flexShrink: 0,
     border: "1px solid #1e293b",
     background: "#020617",
     borderRadius: 16,
