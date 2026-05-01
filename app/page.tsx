@@ -86,37 +86,42 @@ function fmtTime(value?: string | null) {
   });
 }
 
-function fmtCountdown(minutes?: number | null) {
-  if (minutes === null || minutes === undefined || Number.isNaN(Number(minutes))) {
-    return "Pending";
-  }
-
-  if (minutes < 0) return "Started";
-  if (minutes < 60) return `${minutes} min`;
-
-  const hours = Math.floor(minutes / 60);
-  const mins = minutes % 60;
-  if (mins === 0) return `${hours}h`;
-  return `${hours}h ${mins}m`;
+function getStartMs(startTime?: string | null) {
+  if (!startTime) return null;
+  const ms = new Date(startTime).getTime();
+  return Number.isNaN(ms) ? null : ms;
 }
 
-function triggerLabel(minutes?: number | null) {
-  if (minutes === null || minutes === undefined || Number.isNaN(Number(minutes))) {
-    return "Trigger pending";
-  }
+function formatLiveDuration(totalSeconds: number) {
+  if (totalSeconds <= 0) return "Started";
 
-  // Upcoming panel is pre-start only. Started/live/old games should be filtered
-  // by the backend, but keep the frontend defensive so stale rows never show
-  // as an active trigger window.
-  if (minutes <= 0) return "Started";
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
 
-  const triggerIn = minutes - 10;
-  if (triggerIn <= 0) return "Trigger window active";
-  if (triggerIn < 60) return `Triggers in ${triggerIn} min`;
+  if (hours > 0) return `${hours}h ${minutes}m ${seconds}s`;
+  return `${minutes}m ${seconds}s`;
+}
 
-  const hours = Math.floor(triggerIn / 60);
-  const mins = triggerIn % 60;
-  return mins === 0 ? `Triggers in ${hours}h` : `Triggers in ${hours}h ${mins}m`;
+function fmtCountdownLive(startTime?: string | null, nowMs = Date.now()) {
+  const startMs = getStartMs(startTime);
+  if (startMs === null) return "Pending";
+
+  const totalSeconds = Math.floor((startMs - nowMs) / 1000);
+  return formatLiveDuration(totalSeconds);
+}
+
+function triggerLabelLive(startTime?: string | null, nowMs = Date.now()) {
+  const startMs = getStartMs(startTime);
+  if (startMs === null) return "Trigger pending";
+
+  const secondsToStart = Math.floor((startMs - nowMs) / 1000);
+  if (secondsToStart <= 0) return "Started";
+
+  const secondsToTrigger = secondsToStart - 10 * 60;
+  if (secondsToTrigger <= 0) return "Trigger window active";
+
+  return `Triggers in ${formatLiveDuration(secondsToTrigger)}`;
 }
 
 function statusLabel(status?: string | null) {
@@ -221,6 +226,7 @@ export default function Home() {
   const [revealed, setRevealed] = useState<Record<string, boolean>>({});
   const [loading, setLoading] = useState(true);
   const [lastChecked, setLastChecked] = useState("");
+  const [now, setNow] = useState(Date.now());
 
   async function loadEdges() {
     try {
@@ -256,6 +262,11 @@ export default function Home() {
   }
 
   useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
     loadEdges();
     loadUpcoming();
 
@@ -271,10 +282,13 @@ export default function Home() {
 
   const visibleUpcoming = useMemo(() => {
     return (upcoming || []).filter((g) => {
+      const startMs = getStartMs(g.start_time_local || g.start_time_utc);
+      if (startMs !== null) return startMs > now;
+
       const mins = g.minutes_to_start;
       return mins !== null && mins !== undefined && !Number.isNaN(Number(mins)) && Number(mins) > 0;
     });
-  }, [upcoming]);
+  }, [upcoming, now]);
 
   return (
     <main style={styles.page}>
@@ -309,8 +323,10 @@ export default function Home() {
           <div style={styles.upcomingList}>
             {visibleUpcoming.map((g, i) => {
               const isNext = i === 0;
-              const mins = g.minutes_to_start ?? null;
-              const inTriggerWindow = mins !== null && mins > 0 && mins <= 10;
+              const startTime = g.start_time_local || g.start_time_utc;
+              const startMs = getStartMs(startTime);
+              const secondsToStart = startMs === null ? null : Math.floor((startMs - now) / 1000);
+              const inTriggerWindow = secondsToStart !== null && secondsToStart > 0 && secondsToStart <= 10 * 60;
 
               return (
                 <div
@@ -326,9 +342,9 @@ export default function Home() {
                     <span>{fmtTime(g.start_time_local || g.start_time_utc)}</span>
                   </div>
                   <div style={styles.upcomingRight}>
-                    <strong>{fmtCountdown(mins)}</strong>
+                    <strong>{fmtCountdownLive(startTime, now)}</strong>
                     <span style={inTriggerWindow ? styles.triggerLive : undefined}>
-                      {triggerLabel(mins)}
+                      {triggerLabelLive(startTime, now)}
                     </span>
                   </div>
                 </div>
