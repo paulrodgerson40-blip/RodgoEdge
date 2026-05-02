@@ -402,28 +402,6 @@ export default function Home() {
                   </div>
                 </div>
 
-                <div style={styles.scorePanel}>
-                  <div>
-                    <div style={styles.panelLabel}>Final score</div>
-                    {card.result ? (
-                      <div style={styles.scoreLine}>
-                        <span>{teams.away}</span>
-                        <strong>{card.result.away ?? "—"}</strong>
-                        <span style={styles.scoreDash}>—</span>
-                        <strong>{card.result.home ?? "—"}</strong>
-                        <span>{teams.home}</span>
-                      </div>
-                    ) : (
-                      <div style={styles.scorePending}>Score pending</div>
-                    )}
-                  </div>
-
-                  <div style={styles.resultMini}>
-                    <span>Signal result</span>
-                    <strong style={{ color: outcome.color }}>{outcome.label}</strong>
-                  </div>
-                </div>
-
                 <div style={styles.signalSummary}>
                   <div>
                     <div style={styles.panelLabel}>Recommended signal</div>
@@ -468,19 +446,6 @@ export default function Home() {
                           <Metric label="Model edge" value={fmtNumber(m.edge)} />
                           <Metric label="Confidence" value={m.confidence != null ? `${m.confidence}%` : "Pending"} />
                           <Metric label="Outcome" value={outcome.label} color={outcome.color} />
-                        </div>
-
-                        <div style={styles.reasonBox}>
-                          <span>Why this signal?</span>
-                          <p>
-                            {m.reason ||
-                              "The backend confirmed this signal because the model found a qualifying edge and confidence passed the configured threshold."}
-                          </p>
-                        </div>
-
-                        <div style={styles.reasonBox}>
-                          <span>Result explanation</span>
-                          <p>{explainOutcome(card, m)}</p>
                         </div>
                       </div>
                     ))}
@@ -530,8 +495,8 @@ const styles: Record<string, React.CSSProperties> = {
   page: {
     minHeight: "100vh",
     height: "auto",
-    padding: 28,
-    paddingBottom: 80,
+    padding: 12,
+    paddingBottom: 48,
     background: "linear-gradient(180deg, #070b16 0%, #0b1020 100%)",
     color: "#f8fafc",
     overflowY: "auto",
@@ -541,9 +506,9 @@ const styles: Record<string, React.CSSProperties> = {
   hero: {
     display: "flex",
     justifyContent: "space-between",
-    gap: 20,
+    gap: 14,
     alignItems: "center",
-    marginBottom: 26,
+    marginBottom: 16,
   },
   kicker: {
     color: "#38bdf8",
@@ -552,7 +517,7 @@ const styles: Record<string, React.CSSProperties> = {
     letterSpacing: 1.4,
   },
   title: {
-    fontSize: 44,
+    fontSize: 34,
     margin: "8px 0 6px",
     letterSpacing: -1.2,
   },
@@ -566,7 +531,7 @@ const styles: Record<string, React.CSSProperties> = {
     minWidth: 150,
     border: "1px solid #263449",
     borderRadius: 20,
-    padding: 18,
+    padding: 12,
     textAlign: "center",
     background: "linear-gradient(180deg, #111827 0%, #0f172a 100%)",
     boxShadow: "0 20px 50px rgba(0,0,0,0.25)",
@@ -589,9 +554,9 @@ const styles: Record<string, React.CSSProperties> = {
   upcoming: {
     border: "1px solid #263449",
     background: "linear-gradient(180deg, #101827 0%, #0b1224 100%)",
-    borderRadius: 24,
-    padding: 20,
-    marginBottom: 24,
+    borderRadius: 18,
+    padding: 11,
+    marginBottom: 16,
     boxShadow: "0 20px 50px rgba(0,0,0,0.22)",
   },
   upcomingHeader: {
@@ -603,7 +568,7 @@ const styles: Record<string, React.CSSProperties> = {
   },
   upcomingTitle: {
     margin: "6px 0 0",
-    fontSize: 26,
+    fontSize: 22,
     letterSpacing: -0.4,
   },
   upcomingCount: {
@@ -620,12 +585,12 @@ const styles: Record<string, React.CSSProperties> = {
     border: "1px solid #1e293b",
     background: "#020617",
     borderRadius: 16,
-    padding: 16,
+    padding: 12,
     color: "#94a3b8",
   },
   upcomingList: {
     display: "grid",
-    gap: 10,
+    gap: 8,
     maxHeight: "calc(100vh - 360px)",
     minHeight: 0,
     overflowY: "auto",
@@ -639,7 +604,7 @@ const styles: Record<string, React.CSSProperties> = {
     border: "1px solid #1e293b",
     background: "#020617",
     borderRadius: 16,
-    padding: 14,
+    padding: 11,
   },
   upcomingRowNext: {
     borderColor: "rgba(56,189,248,0.55)",
@@ -672,7 +637,7 @@ const styles: Record<string, React.CSSProperties> = {
   empty: {
     border: "1px solid #1e293b",
     background: "#111827",
-    borderRadius: 24,
+    borderRadius: 18,
     padding: 34,
   },
   emptyIcon: {
@@ -681,7 +646,7 @@ const styles: Record<string, React.CSSProperties> = {
   },
   emptyTitle: {
     margin: 0,
-    fontSize: 28,
+    fontSize: 22,
   },
   emptyText: {
     color: "#cbd5e1",
@@ -698,20 +663,20 @@ const styles: Record<string, React.CSSProperties> = {
     border: "1px solid #263449",
     background: "#0b1224",
     borderRadius: 16,
-    padding: 14,
+    padding: 11,
     display: "grid",
     gap: 6,
   },
   grid: {
     display: "grid",
-    gridTemplateColumns: "repeat(auto-fit, minmax(420px, 1fr))",
-    gap: 20,
+    gridTemplateColumns: "repeat(auto-fit, minmax(360px, 1fr))",
+    gap: 14,
   },
   card: {
     border: "1px solid #263449",
     background: "linear-gradient(180deg, #111827 0%, #0f172a 100%)",
-    borderRadius: 24,
-    padding: 22,
+    borderRadius: 18,
+    padding: 12,
     boxShadow: "0 20px 50px rgba(0,0,0,0.28)",
   },
   cardTop: {
@@ -727,8 +692,8 @@ const styles: Record<string, React.CSSProperties> = {
     letterSpacing: 1.2,
   },
   game: {
-    margin: "8px 0",
-    fontSize: 26,
+    margin: "5px 0",
+    fontSize: 22,
     letterSpacing: -0.5,
     lineHeight: 1.15,
   },
@@ -760,8 +725,8 @@ const styles: Record<string, React.CSSProperties> = {
     whiteSpace: "nowrap",
   },
   scorePanel: {
-    marginTop: 20,
-    padding: 16,
+    marginTop: 12,
+    padding: 12,
     borderRadius: 18,
     background: "#0b1224",
     border: "1px solid #1e293b",
@@ -799,8 +764,8 @@ const styles: Record<string, React.CSSProperties> = {
     minWidth: 120,
   },
   signalSummary: {
-    marginTop: 16,
-    padding: 18,
+    marginTop: 10,
+    padding: 12,
     borderRadius: 18,
     background: "#020617",
     border: "1px solid #334155",
@@ -810,7 +775,7 @@ const styles: Record<string, React.CSSProperties> = {
     alignItems: "center",
   },
   mainSignal: {
-    fontSize: 28,
+    fontSize: 22,
     fontWeight: 950,
     letterSpacing: -0.5,
     lineHeight: 1.1,
@@ -827,8 +792,8 @@ const styles: Record<string, React.CSSProperties> = {
   },
   revealButton: {
     width: "100%",
-    marginTop: 18,
-    padding: "15px 16px",
+    marginTop: 10,
+    padding: "10px 12px",
     borderRadius: 16,
     border: 0,
     cursor: "pointer",
@@ -839,8 +804,8 @@ const styles: Record<string, React.CSSProperties> = {
   },
   hideButton: {
     width: "100%",
-    marginTop: 18,
-    padding: "15px 16px",
+    marginTop: 10,
+    padding: "10px 12px",
     borderRadius: 16,
     border: "1px solid #334155",
     cursor: "pointer",
@@ -850,14 +815,14 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: 15,
   },
   markets: {
-    marginTop: 16,
+    marginTop: 10,
     display: "grid",
     gap: 14,
   },
   market: {
     border: "1px solid #334155",
     borderRadius: 20,
-    padding: 16,
+    padding: 12,
     background: "#020617",
   },
   marketHeader: {
@@ -874,8 +839,8 @@ const styles: Record<string, React.CSSProperties> = {
     textTransform: "uppercase",
   },
   selection: {
-    marginTop: 7,
-    fontSize: 25,
+    marginTop: 4,
+    fontSize: 21,
     fontWeight: 950,
     letterSpacing: -0.4,
     lineHeight: 1.15,
@@ -889,20 +854,20 @@ const styles: Record<string, React.CSSProperties> = {
   detailGrid: {
     display: "grid",
     gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))",
-    gap: 10,
-    marginTop: 16,
+    gap: 8,
+    marginTop: 10,
   },
   metric: {
     border: "1px solid #1e293b",
     background: "#0b1224",
     borderRadius: 14,
-    padding: 13,
+    padding: 10,
     display: "grid",
     gap: 6,
   },
   reasonBox: {
-    marginTop: 14,
-    padding: 14,
+    marginTop: 8,
+    padding: 11,
     background: "#0b1224",
     borderRadius: 14,
     color: "#cbd5e1",
@@ -912,7 +877,7 @@ const styles: Record<string, React.CSSProperties> = {
     display: "flex",
     justifyContent: "space-between",
     gap: 12,
-    marginTop: 14,
+    marginTop: 8,
     color: "#64748b",
     fontSize: 12,
     flexWrap: "wrap",
